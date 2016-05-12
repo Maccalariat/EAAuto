@@ -11,6 +11,7 @@ from tkinter.scrolledtext import ScrolledText
 from EAP import EADatabase
 from XLS import ApplicationInventory
 from XLS import ECDMSpreadsheet
+from xml import Erwin_xmi
 
 __author__ = 'M020240'
 
@@ -28,11 +29,13 @@ class EAAutoWindow:
         self.spreadsheet = None
         self.application_inventory_map_excel = {}
         self.application_inventory_map_eap = {}
+        self.erwin_entity_map = {}
         self.log_widget = None
         # end instance variables
 
         self.initUI(master)
         self.log_message('open for business')
+        self.log_message("Don't forget to open and close the database yourself!")
 
     def exit_action(self):
         self.master.destroy
@@ -44,18 +47,11 @@ class EAAutoWindow:
         :return:
 
         """
-        # first open the database
-        eap_file_name = self.open_eap()
-
-        if eap_file_name is None:
-            self.log_message("no eap file selected")
+        if self.eaFile is None:
+            self.log_message("you need to open a database")
             return
-        self.log_message("EAP Filename = " + eap_file_name)
-
-        self.eaFile = EADatabase.EAdatabase(eap_file_name, self.log_message)
         self.eaFile.find_package('Application Inventory')
         self.application_inventory_map_eap = self.eaFile.build_application_map()
-        self.eaFile.stop_db(eap_file_name)
 
         ai_file_name = self.open_excel_ai()
         self.log_message("AI excel file = " + ai_file_name)
@@ -119,29 +115,38 @@ class EAAutoWindow:
         :return:
         """
         self.log_message("starting ECDM guid dump")
-        # first open the database
-        eap_file_name = self.open_eap()
 
-        if eap_file_name is None:
+        if self.eaFile is None:
             self.log_message("no eap file selected")
             return
-        self.log_message("EAP Filename = " + eap_file_name)
 
-        self.eaFile = EADatabase.EAdatabase(eap_file_name, self.log_message)
-        self.eaFile.find_package('ECDM Canonical')
-        self.eaFile.build_ecdm_maps()
-        exporter = ECDMSpreadsheet()
-        exporter.write_entity_map()
+        #self.eaFile.find_package('ECDM Canonical')
+        #(entity_map, relationship_map) =  self.eaFile.build_ecdm_maps()
+        #exporter = ECDMSpreadsheet.ECDMSpreadsheet("c:/HOME/var/projects/Python/EAAuto/ecdmmap.xls", self.log_message)
+        #exporter.write_ecdm_map(entity_map, relationship_map, self.log_message)
+        erwin_mapper = Erwin_xmi.ERWIN_xmi()
+        (erwin_package_map, erwin_entity_map) = erwin_mapper.build_erwin_map()
 
-        self.eaFile.stop_db(eap_file_name)
-
-        return
+        #exporter.close_spreadsheet()
 
     def parse_erwin(self):
         """
         interim class to find out how to parse an erwin xmi export file
         TODO: to be refactored into the EAP:ERWIN compare function
         """
+        filename = None
+        options = {'defaultextension': '.xls',
+                   'filetypes': (('xls', '.xls'), ('xlsx', 'xlsx')),
+                   'initialdir': 'C:\\HOME\\var\\projects\\python\\EAAUTO',
+                   'initialfile': 'edcmmap.xls',
+                   'parent': self.master,
+                   'title': 'Open ecdm GUID reference map'}
+        filename = askopenfilename(**options)
+        if filename:
+            return filename
+        else:
+            return None
+
 
         return
 
@@ -171,12 +176,12 @@ class EAAutoWindow:
                    'title': 'Open Sparx database'}
         filename = askopenfilename(**options)
         if filename:
-            return filename
+            self.eaFile = EADatabase.EAdatabase(filename, self.log_message)
         else:
-            return None
+            self.log_message("Problem with opening the Sparx Database")
 
-    def close_eap(self, fileName):
-        self.eaFile.stopDB(fileName)
+    def close_eap(self):
+        self.eaFile.stop_db()
 
     def open_excel_ai(self):
         filename = None
@@ -212,20 +217,21 @@ class EAAutoWindow:
 
         fileMenu = Menu(menubar, tearoff=0)
         menubar.add_cascade(label="File", menu=fileMenu)
+        fileMenu.add_command(label="Open EAP", command=self.open_eap)
+        fileMenu.add_command(label="Close EAP", command=self.close_eap)
         fileMenu.add_command(label="Exit", command=sys.exit)
 
         processmenu = Menu(menubar, tearoff=0)
         menubar.add_cascade(label="Process", menu=processmenu)
         processmenu.add_command(label="reconcile Applications",
                                 command=self.reconcile_applications)
-        processmenu.add_command(label="parse ERWIN file",
-                                command=self.parse_erwin)
+        processmenu.add_command(label="reconcile ERWIN", command=self.parse_erwin)
         processmenu.add_command(label="update AHC",
                                 command=self.update_AHC)
 
         extract_menu = Menu(menubar, tearoff=0)
         menubar.add_cascade(label="Extract", menu=extract_menu)
-        extract_menu.add_command(label="ECDM GUIDs",
+        extract_menu.add_command(label="Sparx ECDM GUIDs",
                                  command=self.extract_ECDM_guids)
 
         # the log widget

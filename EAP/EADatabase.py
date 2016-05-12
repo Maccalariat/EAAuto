@@ -33,14 +33,9 @@ class EAdatabase:
         self.exp = re.compile('\(\w*-\w*\)\Z')
         self.ecdm_element_map = {}
         self.ecdm_relationship_map = {}
+        self.start_db(file_name, log_function)
 
-        # self.logger.("in EADB")
-        self.start_db(file_name)
-
-    def __str__(self):
-        print("tostring")
-
-    def start_db(self, database_name):
+    def start_db(self, database_name, log_function):
         self.get_pid_list()
 
         # self.ea_application = comtypes.client.CreateObject("EA.App")
@@ -50,10 +45,11 @@ class EAdatabase:
         self.ea_repository = self.ea_application.Repository
         self.ea_repository.OpenFile(database_name)
         self.ea_application.Visible = 0
+        log_function("opened Database", )
 
-    def stop_db(self, database_name):
+    def stop_db(self):
         print("stopping database")
-        self.ea_repository.CloseFile
+        self.ea_repository.CloseFile()
         self.ea_application = None
         del self.ea_application
 
@@ -78,16 +74,18 @@ class EAdatabase:
 
     def get_ecdm_relationships(self, map_element):
         element = self.ea_repository.getElementByGUID(map_element)
-        connector_set = element.Connectors
-        for connector in connector_set:
-            # we are only interested in connections internal to ECDM (both client and supplier are in the ecdm_map
-            client = self.ea_repository.getElementByID(connector.ClientID)
-            supplier = self.ea_repository.getElementByID(connector.SupplierID)
-            if client.ElementGUID in self.ecdm_element_map and supplier.ElementGUID in self.ecdm_element_map:
-                self.logWidget("found a relationship")
-                self.ecdm_relationship_map[connector.ConnectorGUID] = (connector.name, connector.ClientID,
+        try:
+            connector_set = element.Connectors
+            for connector in connector_set:
+                # we are only interested in connections internal to ECDM (both client and supplier are in the ecdm_map
+             client = self.ea_repository.getElementByID(connector.ClientID)
+             supplier = self.ea_repository.getElementByID(connector.SupplierID)
+             if client.ElementGUID in self.ecdm_element_map and supplier.ElementGUID in self.ecdm_element_map:
+                 self.ecdm_relationship_map[connector.ConnectorGUID] = (connector.name, connector.ClientID,
                                                                        connector.SupplierID, client.ElementGUID,
                                                                        supplier.ElementGUID)
+        except:
+            pass
 
 
     def strip_name(self, name):
@@ -135,10 +133,10 @@ class EAdatabase:
 
     def find_package(self, package_name):
         # querystring = "SELECT name, ea_guid from t_object WHERE t_object.object_Type = \'Package\' AND name=\'Application Inventory\'"
-        querystring = r"SELECT name, ea_guid FROM t_object WHERE t_object.object_Type = 'Package' AND name='%s'" % package_name
+        querystring = r"SELECT name, ea_guid FROM t_object WHERE t_object.object_Type = 'Package' AND name = '%s'" % package_name
 
         result = self.ea_repository.SQLQuery(querystring)
-        self.logWidget("query result: " + result)
+        # self.logWidget("query result: " + result)
         doc = minidom.parseString(result)
         item = doc.getElementsByTagName("ea_guid")[0]
         self.logWidget("child data" + item.firstChild.data)
@@ -210,6 +208,7 @@ class EAdatabase:
         # drive the recursion
         dump_element(ecdm_root)
         dump_relationships()
+        print("finished ecdm map generation")
 
         return self.ecdm_element_map, self.ecdm_relationship_map
 

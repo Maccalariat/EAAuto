@@ -1,5 +1,7 @@
-import xlrd
+from openpyxl import Workbook
 from collections import namedtuple
+from tkinter.filedialog import askopenfilename
+from lxml import etree
 
 __author__ = 'M020240'
 """
@@ -12,37 +14,59 @@ Attributes:
 
 class ECDMSpreadsheet:
 
-    def __init__(self, spreadsheet_name, log_widget):
+    def __init__(self, spreadsheet_name, log_message):
         """
         :param spreadsheet_name: the input spreadsheet
-        :param log_widget: A function reference to the logging widget
+        :param log_message A function reference to the logging widget
         :return: no return
         """
-        self.log_widget = log_widget
         self.filename = spreadsheet_name
+        self.log_message = log_message
 
         self.element = namedtuple('element', ['Name', 'GUID'])
-        self.workbook = xlrd.open_workbook(self.filename)
-        self.worksheet = self.workbook.sheet_by_index(0)
+        self.wb = Workbook()
+        self.ws = self.wb.active
 
-
+        # write the header
+        self.ws['A1'] = "GUID"
+        self.ws['B1'] = "Name"
+        self.ws['C1'] = "Type"
+        self.ws['D1'] = "ClientID"
+        self.ws['E1'] = "SourceGUID"
+        self.ws['F1'] = "SupplierID"
+        self.ws['G1'] = "DestGUID"
 
     def close_spreadsheet(self):
         """
         Close the spreadsheet file.
-        We rely on the garbage collection of COM through XLFile to close the excel instance
         :return:
         """
-        del self.workbook
+        self.wb.save(self.filename)
 
-    def write_entity_map(self):
-
-        entity_map = {}
-
-        rows = [ self.worksheet.row_values(idx, 0, 10) for idx in range(self.worksheet.nrows)]
-        entity_map= { row[0]: (row[0], row[1], row[8]) for row in rows }
-
+    def find_erwin_element(self, item_name):
         return
 
-    def write_relationship_map(self):
-        return
+    def write_ecdm_map(self, entity_map, relationship_map, log_message):
+        self.log_message("writing ECDM map")
+        row = 2
+        rows = str(row)
+        for key, value in entity_map.items():
+            rows = str(row)
+            self.ws['A'+rows] = key
+            self.ws['B'+rows] = value[0]
+            self.ws['C'+rows] = value[1]
+            row += 1
+            # log_message("e"+value[0])
+
+        for key, value in relationship_map.items():
+            rows = str(row)
+            self.ws['A'+rows] = key
+            self.ws['B'+rows] = value[0]
+            self.ws['C'+rows] = '-'
+            self.ws['D'+rows] = value[1]
+            self.ws['E'+rows] = value[2]
+            self.ws['F'+rows] = value[3]
+            self.ws['G'+rows] = value[4]
+            row += 1
+            # log_message('r'+value[0])
+        self.log_message("end writing ECDM map")
