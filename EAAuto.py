@@ -1,5 +1,3 @@
-# import sys
-# import pprint
 from tkinter import Tk
 from EAAutoWindow import EAAutoWindow
 

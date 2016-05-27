@@ -1,4 +1,3 @@
-import comtypes.client
 import os
 import psutil
 import signal
@@ -31,8 +30,12 @@ class EAdatabase:
         self.logWidget = log_function
         self.logWidget("in EADB")
         self.exp = re.compile('\(\w*-\w*\)\Z')
-        self.ecdm_element_map = {}
-        self.ecdm_relationship_map = {}
+        self.ea_ecdm_relationship_map = {}
+        self.ea_ecdm_model_map = {}
+        self.ea_ecdm_element_map = {}
+        self.ea_ecdm_package_map = {}
+        self.ea_ecdm_diagram_map = {}
+        self.ea_model_map = {}
         self.start_db(file_name, log_function)
 
     def start_db(self, database_name, log_function):
@@ -72,22 +75,6 @@ class EAdatabase:
                     self.ea_current_instance_pid.append(proc._pid)
                     self.ea_new_instance_pid.append(proc._pid)
 
-    def get_ecdm_relationships(self, map_element):
-        element = self.ea_repository.getElementByGUID(map_element)
-        try:
-            connector_set = element.Connectors
-            for connector in connector_set:
-                # we are only interested in connections internal to ECDM (both client and supplier are in the ecdm_map
-             client = self.ea_repository.getElementByID(connector.ClientID)
-             supplier = self.ea_repository.getElementByID(connector.SupplierID)
-             if client.ElementGUID in self.ecdm_element_map and supplier.ElementGUID in self.ecdm_element_map:
-                 self.ecdm_relationship_map[connector.ConnectorGUID] = (connector.name, connector.ClientID,
-                                                                       connector.SupplierID, client.ElementGUID,
-                                                                       supplier.ElementGUID)
-        except:
-            pass
-
-
     def strip_name(self, name):
         """
         remove the final '(aiid)' postfix from a supplied name
@@ -112,25 +99,6 @@ class EAdatabase:
         else:
             return ''
 
-    def dump_element(self, theElement):
-        # self.log_widget.log_trigger.emit('    element' + theElement.Name)
-        for element in theElement.Elements:
-            self.dump_element(element)
-
-    def dump_package(self, theModel):
-        self.logWidget.log_trigger.emit('package = ' + theModel.Name)
-        for element in theModel.Elements:
-            self.dump_element(element)
-
-        for pkg in theModel.Packages:
-            self.dump_package(pkg)
-
-    def dump_contents(self):
-
-        self.find_package('Application Inventory')
-        # for currentModel in self.__eaRep.Models:
-        #    self.dump_package(currentModel)
-
     def find_package(self, package_name):
         # querystring = "SELECT name, ea_guid from t_object WHERE t_object.object_Type = \'Package\' AND name=\'Application Inventory\'"
         querystring = r"SELECT name, ea_guid FROM t_object WHERE t_object.object_Type = 'Package' AND name = '%s'" % package_name
@@ -144,18 +112,33 @@ class EAdatabase:
         self.logWidget("package = " + package.Name)
         return package
 
+    def get_ecdm_relationships(self, map_element):
+        element = self.ea_repository.getElementByGUID(map_element)
+        try:
+            connector_set = element.Connectors
+            for connector in connector_set:
+                # we are only interested in connections internal to ECDM (both client and supplier are in the ecdm_map
+                client = self.ea_repository.getElementByID(connector.ClientID)
+                supplier = self.ea_repository.getElementByID(connector.SupplierID)
+                if client.ElementGUID in self.ea_ecdm_element_map and supplier.ElementGUID in self.ea_ecdm_element_map:
+                    self.ea_ecdm_relationship_map[connector.ConnectorGUID] = (connector.name, connector.ClientID,
+                                                                           connector.SupplierID, client.ElementGUID,
+                                                                           supplier.ElementGUID)
+        except:
+            pass
+
     def build_ecdm_maps(self):
         """
-        parse the database building two maps:
+        parse the sparx database building two maps:
             * ECDM elements (packages and elements)
             * Relationships between ECDM elements (packages and elements)
         This is specific to a function regarding maintenance of ECDM
 
-        :returns tuple (ecdm_element_map, ecdm_relationship_map)
+        :returns tuple (ea_ecdm_element_map, ea_ecdm_relationship_map)
         """
         self.logWidget("in build_ecdm_map")
-        self.ecdm_element_map = {}
-        self.ecdm_relationship_map = {}
+
+        self.ea_ecdm_relationship_map = {}
         ecdm_root = self.find_package('ECDM Canonical')
 
         # local functions to do the recursion
@@ -165,17 +148,14 @@ class EAdatabase:
             this calls dump_element to dump any elements in the current package
             :param item: the item to be dumped - may be package or element
             """
-
             if item.ObjectType == 5: # model
-                self.ecdm_element_map[item.packageGUID] = (item.Name, 5)
-            elif item.ObjectType == 3: # element
-                self.ecdm_element_map[item.ElementGUID] = (item.Name, 3)
+                self.ea_ecdm_model_map[item.packageGUID] = item.Name
+            elif item.ObjectType == 3 or item.ObjectType == 4: # element or entity
+                self.ea_ecdm_element_map[item.ElementGUID] = item.Name
             elif item.ObjectType == 8: # diagram
-                self.ecdm_element_map[item.DiagramGUID] = (item.Name, 8)
-            elif item.ObjectType == 4:  # entity
-                self.ecdm_element_map[item.ElementGUID] = (item.Name, 4)
+                self.ea_ecdm_diagram_map[item.DiagramGUID] = item.Name
             else:
-                self.ecdm_element_map[item.ElementGUID] = (item.Name, 0)
+                self.ea_ecdm_element_map[item.ElementGUID] = item.Name
 
             # We are not sure what the element is, so not all elements have each type of contents
             try:
@@ -194,23 +174,24 @@ class EAdatabase:
             except:
                 pass
 
-
         def dump_relationships():
             """
-            Process the ecdm_element_map.
-            Check each element's relationships and create an entry in the ecdm_relationship_map only if
-            the relationship is between elements in the ecdm_element_map
+            Process the ea_ecdm_element_map.
+            Check each element's relationships and create an entry in the ea_ecdm_relationship_map only if
+            the relationship is between elements in the ea_ecdm_element_map
             :return:
             """
-            for element in self.ecdm_element_map:
+            for element in self.ea_ecdm_element_map:
                 self.get_ecdm_relationships(element)
 
         # drive the recursion
         dump_element(ecdm_root)
+        self.logWidget("processed elements")
         dump_relationships()
-        print("finished ecdm map generation")
+        print("processed relationships and finished ecdm map generation")
 
-        return self.ecdm_element_map, self.ecdm_relationship_map
+        return self.ea_ecdm_element_map, self.ea_ecdm_relationship_map
+
 
     def build_application_map(self):
         """

@@ -1,23 +1,21 @@
 from tkinter import Frame, Menu, SUNKEN, NORMAL, BOTH, DISABLED, Text
 import sys
+import pickle
 
-# from tkinter import scrolledtext
-# from tkinter import ttk
-from tkinter.filedialog import askopenfilename
+from tkinter.filedialog import askopenfilename, askdirectory
 
-import xml.etree.ElementTree as ET
 from tkinter.scrolledtext import ScrolledText
 
 from EAP import EADatabase
-from XLS import ApplicationInventory
-from XLS import ECDMSpreadsheet
-from xml import Erwin_xmi
+from XLS import ApplicationInventory, ECDMSpreadsheet
+from EAAuto_xml import ErwinXMI
+from Utilities import BiGUID
 
 __author__ = 'M020240'
 
 
 class EAAutoWindow:
-    eaFile = None
+    eaDB = None
     fileName = None
 
     def __init__(self, master):
@@ -25,12 +23,19 @@ class EAAutoWindow:
         self.master = master
         # declare instance variables
         self.log = None  # the logging widget
-        self.eaFile = None
+        self.eaDB = None
         self.spreadsheet = None
         self.application_inventory_map_excel = {}
         self.application_inventory_map_eap = {}
-        self.erwin_entity_map = {}
+        self.ea_ecdm_element_map = {}
+        self.ea_ecdm_relationship_map = {}
+        self.erwin_package_map = {}
+        self.erwin_class_map = {}
+        self.erwin_relationship_map = {}
+        self.erwin_generalization_map = {}
         self.log_widget = None
+        self.ecdm_Sparx_to_ERWIN_GUID = {}
+        self.ecdm_ERWIN_to_Sparx_GUID = {}
         # end instance variables
 
         self.initUI(master)
@@ -38,7 +43,7 @@ class EAAutoWindow:
         self.log_message("Don't forget to open and close the database yourself!")
 
     def exit_action(self):
-        self.master.destroy
+        self.master.destroy()
 
     def reconcile_applications(self):
         """
@@ -47,11 +52,11 @@ class EAAutoWindow:
         :return:
 
         """
-        if self.eaFile is None:
+        if self.eaDB is None:
             self.log_message("you need to open a database")
             return
-        self.eaFile.find_package('Application Inventory')
-        self.application_inventory_map_eap = self.eaFile.build_application_map()
+        self.eaDB.find_package('Application Inventory')
+        self.application_inventory_map_eap = self.eaDB.build_application_map()
 
         ai_file_name = self.open_excel_ai()
         self.log_message("AI excel file = " + ai_file_name)
@@ -84,8 +89,8 @@ class EAAutoWindow:
             return
         self.log_message("EAP Filename = " + eap_file_name)
 
-        self.eaFile = EADatabase.EAdatabase(eap_file_name, self.log_message)
-        self.eaFile.find_package('Application Inventory')
+        self.eaDB = EADatabase.EAdatabase(eap_file_name, self.log_message)
+        self.eaDB.find_package('Application Inventory')
 
         ai_file_name = self.open_excel_ai()
         self.log_message("AI excel file = " + ai_file_name)
@@ -103,67 +108,79 @@ class EAAutoWindow:
 
         self.compare_ahc_to_sparx()
 
-        self.eaFile.stop_db(eap_file_name)
+        self.eaDB.stop_db()
 
     def extract_ECDM_guids(self):
         """
         parse the ECDM canonical directory dumping all elements and relationships (between ERWIN elements)
         to get the baseline Sparx GUIDS.
-        This is pushed out in an Excel file with two tabs:
+        This is pushed out in an Excel file (as a convencience) with two tabs:
         tab 1 is the element list
         tab 2 is the Relationship list
         :return:
         """
         self.log_message("starting ECDM guid dump")
 
-        if self.eaFile is None:
-            self.log_message("no eap file selected")
-            return
+        # if self.eaDB is None:
+        #    self.log_message("no eap file selected")
+        #    return
 
-        #self.eaFile.find_package('ECDM Canonical')
-        #(entity_map, relationship_map) =  self.eaFile.build_ecdm_maps()
-        #exporter = ECDMSpreadsheet.ECDMSpreadsheet("c:/HOME/var/projects/Python/EAAuto/ecdmmap.xls", self.log_message)
-        #exporter.write_ecdm_map(entity_map, relationship_map, self.log_message)
-        erwin_mapper = Erwin_xmi.ERWIN_xmi()
-        (erwin_package_map, erwin_entity_map) = erwin_mapper.build_erwin_map()
-
-        #exporter.close_spreadsheet()
-
-    def parse_erwin(self):
-        """
-        interim class to find out how to parse an erwin xmi export file
-        TODO: to be refactored into the EAP:ERWIN compare function
-        """
-        filename = None
-        options = {'defaultextension': '.xls',
-                   'filetypes': (('xls', '.xls'), ('xlsx', 'xlsx')),
-                   'initialdir': 'C:\\HOME\\var\\projects\\python\\EAAUTO',
-                   'initialfile': 'edcmmap.xls',
-                   'parent': self.master,
-                   'title': 'Open ecdm GUID reference map'}
-        filename = askopenfilename(**options)
-        if filename:
-            return filename
-        else:
-            return None
-
-
-        return
-
-    def open_erwin(self):
-        # define options for opening the EAP file
-        filename = None
+        erwin_mapper = ErwinXMI.ErwinXMI(self.log_message)
         options = {'defaultextension': '.xml',
                    'filetypes': (('xml', '.xml'), ('xmi', 'xmi')),
                    'initialdir': 'C:\\HOME\\var\\projects\\python\\EAAUTO',
-                   'initialfile': 'erwin.xml',
+                   'initialfile': 'erwin_export.EAAuto_xml',
                    'parent': self.master,
-                   'title': 'Open ERWIN file'}
+                   'title': 'Open ERWIN xmi export'}
         filename = askopenfilename(**options)
+
+        self.eaDB.find_package('ECDM Canonical')
+        (self.ea_ecdm_element_map, self.ea_ecdm_relationship_map) =  self.eaDB.build_ecdm_maps()
+
+        directory = askdirectory(parent = self.master,
+                                 initialdir='C:\\HOME\\var\\projects\\python\\EAAUTO',
+                                 title = 'Sparx pickle of ECDM')
+        pickle.dump(self.ea_ecdm_element_map, open(directory + '/ea_ecdm_element_map.p', "wb"))
+        pickle.dump(self.ea_ecdm_relationship_map, open(directory + '/ea_ecdm_relationship_map.p', "wb"))
+        exporter = ECDMSpreadsheet.ECDMSpreadsheet("c:/HOME/var/projects/Python/EAAuto/ecdmmap.xls", self.log_message)
+        exporter.write_ecdm_map(self.ea_ecdm_element_map, self.ea_ecdm_relationship_map, self.log_message)
+
         if filename:
-            return filename
+            (self.erwin_package_map, self.erwin_class_map, self.erwin_relationship_map, self.erwin_generalization_map) =\
+                erwin_mapper.build_erwin_map(filename)
+
         else:
-            return None
+            self.log_message("error getting the ERWIN xmi export")
+            return
+        guid_mapper = BiGUID.BiGUID()
+        reverse_ea_ecdm_element_map = {v: k for k, v in self.ea_ecdm_element_map.items()}
+        # erwin GUID is left-hand, Sparx GUID is right-hand
+        """
+        ea_ecdm_element_map is GUID: (name, type)
+        erwin_class_map is name: GUID
+        """
+        for erwin_name, erwin_guid in self.erwin_class_map.items():
+            if erwin_name in reverse_ea_ecdm_element_map:
+                guid_mapper.add(self.erwin_class_map[erwin_name], reverse_ea_ecdm_element_map[erwin_name])
+            else:
+                self.log_message("missing erwin element in sparx" + erwin_name)
+
+
+        exporter.close_spreadsheet()
+
+    def reconcile_ecdm(self):
+        """
+        compare the ecdm from xmi and sparx(mapped in extract_ECDM_guids)
+         to come up with a 'diff' report
+        :return:
+        """
+        if not (len(self.ea_ecdm_element_map) and len(self.ea_ecdm_relationship_map) and len(self.erwin_generalization_map) and
+            len(self.erwin_relationship_map) and len(self.erwin_class_map) and len(self.erwin_package_map)):
+            self.log_message("don't have all the maps to do a reconciliation")
+            return
+
+        # the order of add/change/delete is important.
+        # relationships must come after entities
 
     def open_eap(self):
         # define options for opening the EAP file
@@ -176,12 +193,12 @@ class EAAutoWindow:
                    'title': 'Open Sparx database'}
         filename = askopenfilename(**options)
         if filename:
-            self.eaFile = EADatabase.EAdatabase(filename, self.log_message)
+            self.eaDB = EADatabase.EAdatabase(filename, self.log_message)
         else:
             self.log_message("Problem with opening the Sparx Database")
 
     def close_eap(self):
-        self.eaFile.stop_db()
+        self.eaDB.stop_db()
 
     def open_excel_ai(self):
         filename = None
@@ -225,7 +242,7 @@ class EAAutoWindow:
         menubar.add_cascade(label="Process", menu=processmenu)
         processmenu.add_command(label="reconcile Applications",
                                 command=self.reconcile_applications)
-        processmenu.add_command(label="reconcile ERWIN", command=self.parse_erwin)
+        processmenu.add_command(label="reconcile ERWIN", command=self.reconcile_ecdm)
         processmenu.add_command(label="update AHC",
                                 command=self.update_AHC)
 
@@ -245,6 +262,7 @@ class EAAutoWindow:
         of the database and updtate the Application Healthcheck tag and cloud tags.
         If the tags do not exist, then create them
         """
+        self.log_message("nothing happening here, moving along")
         return
 
     def compare_ai_to_sparx(self):
@@ -254,7 +272,8 @@ class EAAutoWindow:
         TODO: this diff is currently just a dump to the log window. Provide better formatting and also excel output
         :type self: object
         """
-        self.log_message("processing ...")
+
+        self.log_message("processing AI against Sparx")
 
         if not self.application_inventory_map_excel:
             self.log_message("the excel table is empty - nothing to reconcile")
@@ -287,3 +306,4 @@ class EAAutoWindow:
 
         self.log_message("completed processing")
         self.log_message("====================")
+
